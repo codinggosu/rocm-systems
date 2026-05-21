@@ -2411,40 +2411,45 @@ static bool permuteGpuIds(int *g, int n, int last, struct rcclRomeModel* ref, st
   return false;
 }
 
-static bool permuteNetIds(int *n, int *g, int s, int last, struct rcclRomeModel* ref, struct rcclRomeModel* topo, int* time, bool ignore_numa) {
-  (*time) ++;
-  if (s == last) {
-    int i, j;
-    // match NET numa
-    if (!ignore_numa) {
-      for (i = 0; i < ref->nNics; i++) {
-        if (ref->nicNuma[i] != topo->nicNuma[n[i]]) break;
-      }
-      if (i < ref->nNics) return false;
+// Bitmask DP: predicates hoisted into the per-step transition so memo[mask] is sound.
+static bool permuteNetIdsDP(int mask, int pos, int N, int *n, int *g,
+                            struct rcclRomeModel* ref, struct rcclRomeModel* topo,
+                            int* time, bool ignore_numa, std::vector<int>& memo) {
+  (*time)++;
+  if (pos == N) return true;
+  if (memo[mask] != -1) return memo[mask] == 1;
+
+  for (int i = 0; i < N; i++) {
+    if (mask & (1u << i)) continue;
+    if (!ignore_numa && ref->nicNuma[pos] != topo->nicNuma[i]) continue;
+    bool gdrOk = true;
+    for (int j = 0; j < ref->nGpus; j++) {
+      int topoLvl = topo->gdrLevel[i * ref->nGpus + g[j]];
+      int refLvl  = ref->gdrLevel[pos * ref->nGpus + j];
+      if (topoLvl == PATH_PXN) continue;
+      if ((refLvl == PATH_PXB && topoLvl == PATH_PIX) ||
+          (refLvl == PATH_PIX && topoLvl == PATH_PXB))
+        continue;
+      if (refLvl != topoLvl) { gdrOk = false; break; }
     }
-    // match gdr level
-    for (i = 0; i < ref->nNics; i++) {
-      for (j = 0; j < ref->nGpus; j++) {
-        // enabling PXN override paths over PHB and SYS
-        if (topo->gdrLevel[n[i]*ref->nGpus+g[j]] == PATH_PXN) continue;
-        // treat PIX and PXB as same
-        if ((ref->gdrLevel[i*ref->nGpus+j] == PATH_PXB && topo->gdrLevel[n[i]*ref->nGpus+g[j]] == PATH_PIX) ||
-          (ref->gdrLevel[i*ref->nGpus+j] == PATH_PIX && topo->gdrLevel[n[i]*ref->nGpus+g[j]] == PATH_PXB))
-          continue;
-        if (ref->gdrLevel[i*ref->nGpus+j] != topo->gdrLevel[n[i]*ref->nGpus+g[j]]) break;
-      }
-      if (j < ref->nGpus) break;
-    }
-    if (i < ref->nNics) return false;
-    return true;
-  } else {
-    for (int i = s; i <= last; i++) {
-      std::swap(n[s], n[i]);
-      if (permuteNetIds(n, g, s+1, last, ref, topo, time, ignore_numa)) return true;
-      std::swap(n[s], n[i]);
+    if (!gdrOk) continue;
+
+    n[pos] = i;
+    if (permuteNetIdsDP(mask | (1u << i), pos + 1, N, n, g, ref, topo,
+                        time, ignore_numa, memo)) {
+      memo[mask] = 1;
+      return true;
     }
   }
+  memo[mask] = 0;
   return false;
+}
+
+static bool permuteNetIds(int *n, int *g, int s, int last, struct rcclRomeModel* ref, struct rcclRomeModel* topo, int* time, bool ignore_numa) {
+  int N = last - s + 1;
+  if (N <= 0 || N > 30) return false;
+  std::vector<int> memo(1u << N, -1);
+  return permuteNetIdsDP(0, 0, N, n + s, g, ref, topo, time, ignore_numa, memo);
 }
 
 int checkAlltoallWidth(struct rcclRomeModel *romeTopo) {
