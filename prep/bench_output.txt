@@ -1,0 +1,51 @@
+=== Perf scenario ===
+nGpus=N, nNics=N, half-half NUMA, identity gdrLevel diagonal
+
+  N= 4  [new DP]     found=1  work=5              time=     0.003 ms   n=[0,1,2,3]
+  N= 4  [old recur]  found=1  work=30             time=     0.001 ms   n=[0,1,2,3]
+
+  N= 6  [new DP]     found=1  work=7              time=     0.001 ms   n=[0,1,2,3,4,5]
+  N= 6  [old recur]  found=1  work=1020           time=     0.009 ms   n=[0,1,2,3,4,5]
+
+  N= 8  [new DP]     found=1  work=9              time=     0.001 ms   n=[0,1,2,3,4,5,6,7]
+  N= 8  [old recur]  found=1  work=60404          time=     0.450 ms   n=[0,1,2,3,4,5,6,7]
+
+  N=10  [new DP]     found=1  work=11             time=     0.002 ms   n=[0,1,2,3,4,5,6,7,8,9]
+  N=10  [old recur]  found=1  work=5602894        time=    41.007 ms   n=[0,1,2,3,4,5,6,7,8,9]
+
+  N=12  [new DP]     found=1  work=13             time=     0.007 ms   n=[0,1,2,3,4,5,6,7,8,9,10,11]
+  N=12  [old recur]  found=1  work=753839026      time=  5415.603 ms   n=[0,1,2,3,4,5,6,7,8,9,10,11]
+
+
+=== Worst-case (no-match) scenario: recursive walks ALL N! permutations ===
+Predicate fails for every permutation -> recursive returns false after exhausting.
+This is the practical hang case: 16 NICs, no rome_model match -> 16! = 21 trillion iters.
+
+  N= 6  [new DP]     found=0  work=1              time=     0.000 ms
+  N= 6  [old recur]  found=0  work=1237           time=     0.010 ms
+
+  N= 8  [new DP]     found=0  work=1              time=     0.000 ms
+  N= 8  [old recur]  found=0  work=69281          time=     0.618 ms
+
+  N=10  [new DP]     found=0  work=1              time=     0.000 ms
+  N=10  [old recur]  found=0  work=6235301        time=    61.658 ms
+
+  N=11  [new DP]     found=0  work=1              time=     0.000 ms
+  N=11  [old recur]  found=0  work=68588312       time=   702.741 ms
+
+  N=12  [new DP]     found=0  work=1              time=     0.000 ms
+  N=12  [old recur]  found=0  work=823059745      time=  8890.075 ms
+
+
+=== Correctness witness: memo-poisoning scenario ===
+N=4, NUMA=[0,0,0,0], topo gdrLevel has positions 2<->3 swapped.
+Unique valid permutation is n=[0,1,3,2].
+
+  N= 4  [old recur]  found=1  work=31             time=     0.001 ms   n=[0,1,3,2]
+  N= 4  [naive DP]   found=0  work=33             time=     0.001 ms
+  N= 4  [new DP]     found=1  work=5              time=     0.001 ms   n=[0,1,3,2]
+
+  naive-DP-finds-it = 0 (expected 0; naive is unsound)
+  new-DP-finds-it   = 1 (expected 1; new is sound)
+  agrees-with-recursive = 1
+  -> Witness PASSES: new DP corrects the naive memo poisoning.

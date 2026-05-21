@@ -1,0 +1,26 @@
+replace permuteNetIds O(N!) recursion with sound bitmask DP
+
+The recursive permutation enumeration in permuteNetIds() can walk every
+one of N! topo-NIC orderings before returning. On systems with 16 NICs
+and NCCL_IB_MERGE_NICS=0 the no-match path takes ~1.7 * 16! ~= 35
+trillion function calls, on the order of days of CPU walk inside a
+single ncclCommInitRank() call. RCCL effectively hangs at init.
+
+Replace the recursion with a memoized bitmask DP. Crucially, the NUMA
+and gdrLevel predicates are checked inside the per-step transition,
+not at the leaf. This is what makes dp[mask] a sound memoization key:
+once a (pos, i) pairing has been accepted, feasibility from (mask,
+pos+1) onward depends only on which topo NICs remain. The naive
+formulation that checks gdrLevel only at the leaf is unsound on inputs
+with duplicate nicNuma entries (every shipped rcclRomeModel has them),
+because the first failing leaf poisons memo[full_mask] and every valid
+sibling permutation reaches the cached false and is missed.
+
+Also preserves the PATH_PXB <-> PATH_PIX equivalence rule that was
+added to the leaf check at rome_models.cc:2431-2433 after the
+ROCm/rccl -> ROCm/rocm-systems migration, and adds an N > 30 guard
+plus 1u<<N to keep the dp size computation in unsigned arithmetic.
+
+Re-applies the optimization originally proposed in ROCm/rccl#1566
+(closed for procedural reasons during the migration), with a fix to
+the DP formulation.
